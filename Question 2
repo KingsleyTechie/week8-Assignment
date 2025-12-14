@@ -1,0 +1,504 @@
+Project Structure:
+
+
+library-management-api/
+├── app/
+│   ├── __init__.py
+│   ├── main.py
+│   ├── database.py
+│   ├── models.py
+│   ├── schemas.py
+│   └── routers/
+│       ├── __init__.py
+│       ├── books.py
+│       └── members.py
+├── requirements.txt
+└── README.md
+
+
+requirements.txt:
+
+fastapi==0.104.1
+uvicorn==0.24.0
+sqlalchemy==2.0.23
+pymysql==1.1.0
+python-dotenv==1.0.0
+
+
+app/database.py:
+
+
+from sqlalchemy import create_engine
+from sqlalchemy.ext.declarative import declarative_base
+from sqlalchemy.orm import sessionmaker
+import os
+from dotenv import load_dotenv
+
+load_dotenv()
+
+DATABASE_URL = os.getenv("DATABASE_URL", "mysql+pymysql://root:password@localhost/library_management_system")
+
+engine = create_engine(DATABASE_URL, pool_pre_ping=True)
+SessionLocal = sessionmaker(autocommit=False, autoflush=False, bind=engine)
+Base = declarative_base()
+
+def get_db():
+    db = SessionLocal()
+    try:
+        yield db
+    finally:
+        db.close()
+
+
+app/models.py:
+
+from sqlalchemy import Column, Integer, String, Date, Text, ForeignKey, DECIMAL, Enum, TIMESTAMP
+from sqlalchemy.orm import relationship
+from sqlalchemy.sql import func
+from database import Base
+
+class Member(Base):
+    __tablename__ = "members"
+    
+    member_id = Column(Integer, primary_key=True, index=True)
+    first_name = Column(String(50), nullable=False)
+    last_name = Column(String(50), nullable=False)
+    email = Column(String(100), unique=True, nullable=False)
+    phone = Column(String(20))
+    address = Column(Text)
+    date_of_birth = Column(Date)
+    membership_date = Column(Date, default=func.current_date())
+    membership_status = Column(Enum('Active', 'Suspended', 'Expired'), default='Active')
+    created_at = Column(TIMESTAMP, default=func.current_timestamp())
+    updated_at = Column(TIMESTAMP, default=func.current_timestamp(), onupdate=func.current_timestamp())
+    
+    loans = relationship("Loan", back_populates="member")
+
+class Book(Base):
+    __tablename__ = "books"
+    
+    book_id = Column(Integer, primary_key=True, index=True)
+    isbn = Column(String(13), unique=True, nullable=False)
+    title = Column(String(200), nullable=False)
+    author_id = Column(Integer, ForeignKey('authors.author_id'), nullable=False)
+    publisher_id = Column(Integer, ForeignKey('publishers.publisher_id'), nullable=False)
+    publication_year = Column(Integer)
+    genre = Column(String(50))
+    language = Column(String(30))
+    page_count = Column(Integer)
+    description = Column(Text)
+    total_copies = Column(Integer, default=1)
+    available_copies = Column(Integer, default=1)
+    created_at = Column(TIMESTAMP, default=func.current_timestamp())
+    updated_at = Column(TIMESTAMP, default=func.current_timestamp(), onupdate=func.current_timestamp())
+    
+    author = relationship("Author", back_populates="books")
+    publisher = relationship("Publisher")
+    loans = relationship("Loan", back_populates="book")
+
+class Author(Base):
+    __tablename__ = "authors"
+    
+    author_id = Column(Integer, primary_key=True, index=True)
+    first_name = Column(String(50), nullable=False)
+    last_name = Column(String(50), nullable=False)
+    nationality = Column(String(50))
+    birth_year = Column(Integer)
+    biography = Column(Text)
+    created_at = Column(TIMESTAMP, default=func.current_timestamp())
+    
+    books = relationship("Book", back_populates="author")
+
+class Publisher(Base):
+    __tablename__ = "publishers"
+    
+    publisher_id = Column(Integer, primary_key=True, index=True)
+    name = Column(String(100), unique=True, nullable=False)
+    address = Column(Text)
+    contact_email = Column(String(100))
+    contact_phone = Column(String(20))
+    established_year = Column(Integer)
+    created_at = Column(TIMESTAMP, default=func.current_timestamp())
+
+class Loan(Base):
+    __tablename__ = "loans"
+    
+    loan_id = Column(Integer, primary_key=True, index=True)
+    member_id = Column(Integer, ForeignKey('members.member_id'), nullable=False)
+    book_id = Column(Integer, ForeignKey('books.book_id'), nullable=False)
+    loan_date = Column(Date, default=func.current_date())
+    due_date = Column(Date, nullable=False)
+    return_date = Column(Date)
+    status = Column(Enum('Active', 'Returned', 'Overdue', 'Lost'), default='Active')
+    late_fee = Column(DECIMAL(10, 2), default=0.00)
+    created_at = Column(TIMESTAMP, default=func.current_timestamp())
+    
+    member = relationship("Member", back_populates="loans")
+    book = relationship("Book", back_populates="loans")
+
+
+app/schemas.py:
+
+from pydantic import BaseModel, EmailStr, constr
+from typing import Optional
+from datetime import date, datetime
+from enum import Enum
+
+class MembershipStatus(str, Enum):
+    ACTIVE = "Active"
+    SUSPENDED = "Suspended"
+    EXPIRED = "Expired"
+
+class MemberBase(BaseModel):
+    first_name: constr(max_length=50)
+    last_name: constr(max_length=50)
+    email: EmailStr
+    phone: Optional[str] = None
+    address: Optional[str] = None
+    date_of_birth: Optional[date] = None
+
+class MemberCreate(MemberBase):
+    pass
+
+class MemberUpdate(BaseModel):
+    first_name: Optional[constr(max_length=50)] = None
+    last_name: Optional[constr(max_length=50)] = None
+    phone: Optional[str] = None
+    address: Optional[str] = None
+    membership_status: Optional[MembershipStatus] = None
+
+class Member(MemberBase):
+    member_id: int
+    membership_date: date
+    membership_status: MembershipStatus
+    created_at: datetime
+    updated_at: datetime
+    
+    class Config:
+        from_attributes = True
+
+class BookBase(BaseModel):
+    isbn: constr(max_length=13)
+    title: constr(max_length=200)
+    author_id: int
+    publisher_id: int
+    publication_year: Optional[int] = None
+    genre: Optional[str] = None
+    total_copies: int = 1
+
+class BookCreate(BookBase):
+    pass
+
+class BookUpdate(BaseModel):
+    title: Optional[constr(max_length=200)] = None
+    genre: Optional[str] = None
+    total_copies: Optional[int] = None
+    available_copies: Optional[int] = None
+
+class Book(BookBase):
+    book_id: int
+    available_copies: int
+    created_at: datetime
+    updated_at: datetime
+    
+    class Config:
+        from_attributes = True
+
+
+app/routers/members.py:
+
+from fastapi import APIRouter, Depends, HTTPException
+from sqlalchemy.orm import Session
+from typing import List
+import app.models as models
+import app.schemas as schemas
+from app.database import get_db
+
+router = APIRouter(prefix="/members", tags=["members"])
+
+@router.post("/", response_model=schemas.Member)
+def create_member(member: schemas.MemberCreate, db: Session = Depends(get_db)):
+    # Check if email already exists
+    db_member = db.query(models.Member).filter(models.Member.email == member.email).first()
+    if db_member:
+        raise HTTPException(status_code=400, detail="Email already registered")
+    
+    db_member = models.Member(**member.dict())
+    db.add(db_member)
+    db.commit()
+    db.refresh(db_member)
+    return db_member
+
+@router.get("/", response_model=List[schemas.Member])
+def read_members(skip: int = 0, limit: int = 100, db: Session = Depends(get_db)):
+    members = db.query(models.Member).offset(skip).limit(limit).all()
+    return members
+
+@router.get("/{member_id}", response_model=schemas.Member)
+def read_member(member_id: int, db: Session = Depends(get_db)):
+    member = db.query(models.Member).filter(models.Member.member_id == member_id).first()
+    if member is None:
+        raise HTTPException(status_code=404, detail="Member not found")
+    return member
+
+@router.put("/{member_id}", response_model=schemas.Member)
+def update_member(member_id: int, member_update: schemas.MemberUpdate, db: Session = Depends(get_db)):
+    db_member = db.query(models.Member).filter(models.Member.member_id == member_id).first()
+    if db_member is None:
+        raise HTTPException(status_code=404, detail="Member not found")
+    
+    update_data = member_update.dict(exclude_unset=True)
+    for field, value in update_data.items():
+        setattr(db_member, field, value)
+    
+    db.commit()
+    db.refresh(db_member)
+    return db_member
+
+@router.delete("/{member_id}")
+def delete_member(member_id: int, db: Session = Depends(get_db)):
+    db_member = db.query(models.Member).filter(models.Member.member_id == member_id).first()
+    if db_member is None:
+        raise HTTPException(status_code=404, detail="Member not found")
+    
+    db.delete(db_member)
+    db.commit()
+    return {"message": "Member deleted successfully"}
+
+
+app/routers/books.py:
+
+from fastapi import APIRouter, Depends, HTTPException
+from sqlalchemy.orm import Session
+from typing import List
+import app.models as models
+import app.schemas as schemas
+from app.database import get_db
+
+router = APIRouter(prefix="/books", tags=["books"])
+
+@router.post("/", response_model=schemas.Book)
+def create_book(book: schemas.BookCreate, db: Session = Depends(get_db)):
+    # Check if ISBN already exists
+    db_book = db.query(models.Book).filter(models.Book.isbn == book.isbn).first()
+    if db_book:
+        raise HTTPException(status_code=400, detail="ISBN already exists")
+    
+    # Check if author exists
+    author = db.query(models.Author).filter(models.Author.author_id == book.author_id).first()
+    if not author:
+        raise HTTPException(status_code=404, detail="Author not found")
+    
+    # Check if publisher exists
+    publisher = db.query(models.Publisher).filter(models.Publisher.publisher_id == book.publisher_id).first()
+    if not publisher:
+        raise HTTPException(status_code=404, detail="Publisher not found")
+    
+    db_book = models.Book(**book.dict(), available_copies=book.total_copies)
+    db.add(db_book)
+    db.commit()
+    db.refresh(db_book)
+    return db_book
+
+@router.get("/", response_model=List[schemas.Book])
+def read_books(skip: int = 0, limit: int = 100, available_only: bool = False, db: Session = Depends(get_db)):
+    query = db.query(models.Book)
+    if available_only:
+        query = query.filter(models.Book.available_copies > 0)
+    books = query.offset(skip).limit(limit).all()
+    return books
+
+@router.get("/{book_id}", response_model=schemas.Book)
+def read_book(book_id: int, db: Session = Depends(get_db)):
+    book = db.query(models.Book).filter(models.Book.book_id == book_id).first()
+    if book is None:
+        raise HTTPException(status_code=404, detail="Book not found")
+    return book
+
+@router.put("/{book_id}", response_model=schemas.Book)
+def update_book(book_id: int, book_update: schemas.BookUpdate, db: Session = Depends(get_db)):
+    db_book = db.query(models.Book).filter(models.Book.book_id == book_id).first()
+    if db_book is None:
+        raise HTTPException(status_code=404, detail="Book not found")
+    
+    update_data = book_update.dict(exclude_unset=True)
+    for field, value in update_data.items():
+        setattr(db_book, field, value)
+    
+    db.commit()
+    db.refresh(db_book)
+    return db_book
+
+@router.delete("/{book_id}")
+def delete_book(book_id: int, db: Session = Depends(get_db)):
+    db_book = db.query(models.Book).filter(models.Book.book_id == book_id).first()
+    if db_book is None:
+        raise HTTPException(status_code=404, detail="Book not found")
+    
+    db.delete(db_book)
+    db.commit()
+    return {"message": "Book deleted successfully"}
+
+
+app/main.py:
+
+from fastapi import FastAPI
+from app.routers import members, books
+from app.database import engine
+import app.models as models
+
+# Create database tables
+models.Base.metadata.create_all(bind=engine)
+
+app = FastAPI(
+    title="Library Management System API",
+    description="A complete library management system with CRUD operations",
+    version="1.0.0"
+)
+
+# Include routers
+app.include_router(members.router)
+app.include_router(books.router)
+
+@app.get("/")
+def read_root():
+    return {
+        "message": "Welcome to Library Management System API",
+        "documentation": "/docs",
+        "endpoints": {
+            "members": "/members",
+            "books": "/books"
+        }
+    }
+
+if __name__ == "__main__":
+    import uvicorn
+    uvicorn.run(app, host="0.0.0.0", port=8000)
+README.md:
+markdown
+# Library Management System API
+
+A complete library management system with FastAPI backend and MySQL database.
+
+## Features
+- Complete CRUD operations for Members and Books
+- MySQL database with proper relationships
+- Automatic API documentation (Swagger UI)
+- Input validation with Pydantic
+- Database migrations with SQLAlchemy
+
+## Prerequisites
+- Python 3.8+
+- MySQL Server
+- pip (Python package manager)
+
+## Installation
+
+1. **Clone the repository:**
+```bash
+git clone <your-repo-url>
+cd library-management-api
+Create and activate virtual environment:
+
+bash
+python -m venv venv
+# On Windows:
+venv\Scripts\activate
+# On Mac/Linux:
+source venv/bin/activate
+Install dependencies:
+
+bash
+pip install -r requirements.txt
+Set up MySQL database:
+
+Create a database named library_management_system
+
+Update database credentials in .env file:
+
+env
+DATABASE_URL=mysql+pymysql://username:password@localhost/library_management_system
+Run the application:
+
+bash
+python -m app.main
+Access the API:
+
+API: http://localhost:8000
+
+Documentation: http://localhost:8000/docs
+
+Alternative docs: http://localhost:8000/redoc
+
+API Endpoints
+Members
+POST /members - Create a new member
+
+GET /members - Get all members
+
+GET /members/{id} - Get a specific member
+
+PUT /members/{id} - Update a member
+
+DELETE /members/{id} - Delete a member
+
+Books
+POST /books - Add a new book
+
+GET /books - Get all books
+
+GET /books/{id} - Get a specific book
+
+PUT /books/{id} - Update a book
+
+DELETE /books/{id} - Delete a book
+
+Database Schema
+The system includes 10 normalized tables:
+
+members - Library members/patrons
+
+books - Book catalog
+
+authors - Book authors
+
+publishers - Publishing companies
+
+loans - Book borrowing records
+
+reservations - Book reservations
+
+fines - Late fees and fines
+
+staff - Library employees
+
+book_authors - Many-to-many relationship
+
+audit_log - Change tracking
+
+Running Tests
+bash
+# Install test dependencies
+pip install pytest httpx
+
+# Run tests
+pytest
+Deployment
+Docker Deployment:
+dockerfile
+FROM python:3.9
+WORKDIR /app
+COPY requirements.txt .
+RUN pip install --no-cache-dir -r requirements.txt
+COPY . .
+CMD ["uvicorn", "app.main:app", "--host", "0.0.0.0", "--port", "8000"]
+Contributing
+Fork the repository
+
+Create a feature branch
+
+Commit your changes
+
+Push to the branch
+
+Open a Pull Request
