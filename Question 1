@@ -1,0 +1,360 @@
+-- ============================================
+-- Library Management System Database
+-- Author: [Nnaemeka Kingsley Ugwumba]
+-- Date: [14th December, 2025]
+-- ============================================
+
+-- Create the database
+CREATE DATABASE IF NOT EXISTS library_management_system;
+USE library_management_system;
+
+-- ============================================
+-- Table 1: Members (Library Members/Patrons)
+-- ============================================
+CREATE TABLE members (
+    member_id INT AUTO_INCREMENT PRIMARY KEY,
+    first_name VARCHAR(50) NOT NULL,
+    last_name VARCHAR(50) NOT NULL,
+    email VARCHAR(100) UNIQUE NOT NULL,
+    phone VARCHAR(20),
+    address TEXT,
+    date_of_birth DATE,
+    membership_date DATE DEFAULT (CURDATE()),
+    membership_status ENUM('Active', 'Suspended', 'Expired') DEFAULT 'Active',
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP
+);
+
+-- ============================================
+-- Table 2: Authors
+-- ============================================
+CREATE TABLE authors (
+    author_id INT AUTO_INCREMENT PRIMARY KEY,
+    first_name VARCHAR(50) NOT NULL,
+    last_name VARCHAR(50) NOT NULL,
+    nationality VARCHAR(50),
+    birth_year YEAR,
+    biography TEXT,
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+);
+
+-- ============================================
+-- Table 3: Publishers
+-- ============================================
+CREATE TABLE publishers (
+    publisher_id INT AUTO_INCREMENT PRIMARY KEY,
+    name VARCHAR(100) NOT NULL UNIQUE,
+    address TEXT,
+    contact_email VARCHAR(100),
+    contact_phone VARCHAR(20),
+    established_year YEAR,
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+);
+
+-- ============================================
+-- Table 4: Books
+-- ============================================
+CREATE TABLE books (
+    book_id INT AUTO_INCREMENT PRIMARY KEY,
+    isbn VARCHAR(13) UNIQUE NOT NULL,
+    title VARCHAR(200) NOT NULL,
+    author_id INT NOT NULL,
+    publisher_id INT NOT NULL,
+    publication_year YEAR,
+    genre VARCHAR(50),
+    language VARCHAR(30),
+    page_count INT,
+    description TEXT,
+    total_copies INT DEFAULT 1,
+    available_copies INT DEFAULT 1,
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+    
+    FOREIGN KEY (author_id) REFERENCES authors(author_id)
+        ON UPDATE CASCADE
+        ON DELETE RESTRICT,
+    
+    FOREIGN KEY (publisher_id) REFERENCES publishers(publisher_id)
+        ON UPDATE CASCADE
+        ON DELETE RESTRICT,
+    
+    CHECK (available_copies <= total_copies),
+    CHECK (available_copies >= 0)
+);
+
+-- ============================================
+-- Table 5: Book_Authors (for Many-to-Many relationship)
+-- Books can have multiple authors, authors can write multiple books
+-- ============================================
+CREATE TABLE book_authors (
+    book_id INT NOT NULL,
+    author_id INT NOT NULL,
+    contribution_type ENUM('Primary', 'Co-Author', 'Editor', 'Translator') DEFAULT 'Primary',
+    
+    PRIMARY KEY (book_id, author_id),
+    FOREIGN KEY (book_id) REFERENCES books(book_id)
+        ON UPDATE CASCADE
+        ON DELETE CASCADE,
+    FOREIGN KEY (author_id) REFERENCES authors(author_id)
+        ON UPDATE CASCADE
+        ON DELETE CASCADE
+);
+
+-- ============================================
+-- Table 6: Loans (Borrowing Records)
+-- ============================================
+CREATE TABLE loans (
+    loan_id INT AUTO_INCREMENT PRIMARY KEY,
+    member_id INT NOT NULL,
+    book_id INT NOT NULL,
+    loan_date DATE NOT NULL DEFAULT (CURDATE()),
+    due_date DATE NOT NULL,
+    return_date DATE,
+    status ENUM('Active', 'Returned', 'Overdue', 'Lost') DEFAULT 'Active',
+    late_fee DECIMAL(10, 2) DEFAULT 0.00,
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    
+    FOREIGN KEY (member_id) REFERENCES members(member_id)
+        ON UPDATE CASCADE
+        ON DELETE RESTRICT,
+    
+    FOREIGN KEY (book_id) REFERENCES books(book_id)
+        ON UPDATE CASCADE
+        ON DELETE RESTRICT,
+    
+    CHECK (due_date > loan_date),
+    CHECK (return_date IS NULL OR return_date >= loan_date)
+);
+
+-- ============================================
+-- Table 7: Reservations
+-- ============================================
+CREATE TABLE reservations (
+    reservation_id INT AUTO_INCREMENT PRIMARY KEY,
+    member_id INT NOT NULL,
+    book_id INT NOT NULL,
+    reservation_date DATE NOT NULL DEFAULT (CURDATE()),
+    status ENUM('Pending', 'Ready', 'Cancelled', 'Expired') DEFAULT 'Pending',
+    expiry_date DATE,
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    
+    FOREIGN KEY (member_id) REFERENCES members(member_id)
+        ON UPDATE CASCADE
+        ON DELETE CASCADE,
+    
+    FOREIGN KEY (book_id) REFERENCES books(book_id)
+        ON UPDATE CASCADE
+        ON DELETE CASCADE,
+    
+    UNIQUE KEY unique_active_reservation (member_id, book_id, status)
+);
+
+-- ============================================
+-- Table 8: Fines
+-- ============================================
+CREATE TABLE fines (
+    fine_id INT AUTO_INCREMENT PRIMARY KEY,
+    member_id INT NOT NULL,
+    loan_id INT,
+    amount DECIMAL(10, 2) NOT NULL,
+    reason VARCHAR(200),
+    fine_date DATE NOT NULL DEFAULT (CURDATE()),
+    paid_date DATE,
+    status ENUM('Unpaid', 'Paid', 'Waived') DEFAULT 'Unpaid',
+    
+    FOREIGN KEY (member_id) REFERENCES members(member_id)
+        ON UPDATE CASCADE
+        ON DELETE RESTRICT,
+    
+    FOREIGN KEY (loan_id) REFERENCES loans(loan_id)
+        ON UPDATE CASCADE
+        ON DELETE SET NULL
+);
+
+-- ============================================
+-- Table 9: Staff (Library Employees)
+-- ============================================
+CREATE TABLE staff (
+    staff_id INT AUTO_INCREMENT PRIMARY KEY,
+    first_name VARCHAR(50) NOT NULL,
+    last_name VARCHAR(50) NOT NULL,
+    email VARCHAR(100) UNIQUE NOT NULL,
+    phone VARCHAR(20),
+    position VARCHAR(50),
+    hire_date DATE DEFAULT (CURDATE()),
+    salary DECIMAL(10, 2),
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+);
+
+-- ============================================
+-- Table 10: Audit Log (for tracking changes)
+-- ============================================
+CREATE TABLE audit_log (
+    log_id INT AUTO_INCREMENT PRIMARY KEY,
+    table_name VARCHAR(50) NOT NULL,
+    record_id INT NOT NULL,
+    action ENUM('INSERT', 'UPDATE', 'DELETE') NOT NULL,
+    old_values JSON,
+    new_values JSON,
+    changed_by VARCHAR(100),
+    changed_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+);
+
+-- ============================================
+-- Indexes for Performance Optimization
+-- ============================================
+CREATE INDEX idx_members_email ON members(email);
+CREATE INDEX idx_members_status ON members(membership_status);
+CREATE INDEX idx_books_title ON books(title);
+CREATE INDEX idx_books_isbn ON books(isbn);
+CREATE INDEX idx_loans_dates ON loans(loan_date, due_date, return_date);
+CREATE INDEX idx_loans_status ON loans(status);
+CREATE INDEX idx_reservations_status ON reservations(status);
+
+-- ============================================
+-- Sample Data Insertion (Optional)
+-- ============================================
+-- Insert sample authors
+INSERT INTO authors (first_name, last_name, nationality, birth_year) VALUES
+('George', 'Orwell', 'British', 1903),
+('J.K.', 'Rowling', 'British', 1965),
+('Stephen', 'King', 'American', 1947),
+('Harper', 'Lee', 'American', 1926),
+('J.R.R.', 'Tolkien', 'British', 1892);
+
+-- Insert sample publishers
+INSERT INTO publishers (name, contact_email) VALUES
+('Penguin Books', 'contact@penguin.com'),
+('Bloomsbury', 'info@bloomsbury.com'),
+('Scribner', 'support@scribner.com'),
+('HarperCollins', 'hello@harpercollins.com');
+
+-- Insert sample books
+INSERT INTO books (isbn, title, author_id, publisher_id, publication_year, genre, total_copies, available_copies) VALUES
+('9780451524935', '1984', 1, 1, 1949, 'Dystopian', 5, 5),
+('9780439554930', 'Harry Potter and the Philosopher''s Stone', 2, 2, 1997, 'Fantasy', 3, 3),
+('9781501142970', 'The Shining', 3, 3, 1977, 'Horror', 2, 2),
+('9780061120084', 'To Kill a Mockingbird', 4, 4, 1960, 'Fiction', 4, 4),
+('9780261103253', 'The Lord of the Rings', 5, 4, 1954, 'Fantasy', 3, 3);
+
+-- Insert sample members
+INSERT INTO members (first_name, last_name, email, phone) VALUES
+('John', 'Smith', 'john.smith@email.com', '555-0101'),
+('Sarah', 'Johnson', 'sarah.j@email.com', '555-0102'),
+('Michael', 'Brown', 'michael.b@email.com', '555-0103');
+
+-- ============================================
+-- Views for Common Queries
+-- ============================================
+CREATE VIEW active_loans_view AS
+SELECT 
+    l.loan_id,
+    m.first_name,
+    m.last_name,
+    b.title,
+    l.loan_date,
+    l.due_date,
+    l.status,
+    DATEDIFF(CURDATE(), l.due_date) AS days_overdue
+FROM loans l
+JOIN members m ON l.member_id = m.member_id
+JOIN books b ON l.book_id = b.book_id
+WHERE l.status = 'Active';
+
+CREATE VIEW available_books_view AS
+SELECT 
+    b.book_id,
+    b.title,
+    a.first_name AS author_first,
+    a.last_name AS author_last,
+    b.available_copies,
+    b.genre
+FROM books b
+JOIN authors a ON b.author_id = a.author_id
+WHERE b.available_copies > 0;
+
+-- ============================================
+-- Stored Procedure for Borrowing a Book
+-- ============================================
+DELIMITER $$
+CREATE PROCEDURE borrow_book(
+    IN p_member_id INT,
+    IN p_book_id INT,
+    IN p_loan_days INT
+)
+BEGIN
+    DECLARE v_available INT;
+    DECLARE v_member_status VARCHAR(20);
+    
+    -- Check member status
+    SELECT membership_status INTO v_member_status 
+    FROM members 
+    WHERE member_id = p_member_id;
+    
+    -- Check book availability
+    SELECT available_copies INTO v_available 
+    FROM books 
+    WHERE book_id = p_book_id;
+    
+    IF v_member_status != 'Active' THEN
+        SIGNAL SQLSTATE '45000' 
+        SET MESSAGE_TEXT = 'Member is not active';
+    ELSEIF v_available < 1 THEN
+        SIGNAL SQLSTATE '45000' 
+        SET MESSAGE_TEXT = 'Book is not available';
+    ELSE
+        -- Insert loan record
+        INSERT INTO loans (member_id, book_id, due_date)
+        VALUES (p_member_id, p_book_id, DATE_ADD(CURDATE(), INTERVAL p_loan_days DAY));
+        
+        -- Update book availability
+        UPDATE books 
+        SET available_copies = available_copies - 1 
+        WHERE book_id = p_book_id;
+    END IF;
+END$$
+DELIMITER ;
+
+-- ============================================
+-- Trigger for Updating Book Availability
+-- ============================================
+DELIMITER $$
+CREATE TRIGGER after_loan_return
+AFTER UPDATE ON loans
+FOR EACH ROW
+BEGIN
+    IF OLD.status != 'Returned' AND NEW.status = 'Returned' THEN
+        UPDATE books 
+        SET available_copies = available_copies + 1 
+        WHERE book_id = NEW.book_id;
+    END IF;
+END$$
+DELIMITER ;
+
+-- ============================================
+-- Function to Calculate Overdue Days
+-- ============================================
+DELIMITER $$
+CREATE FUNCTION calculate_overdue_fee(p_loan_id INT) 
+RETURNS DECIMAL(10,2)
+DETERMINISTIC
+BEGIN
+    DECLARE v_due_date DATE;
+    DECLARE v_days_overdue INT;
+    DECLARE v_fee DECIMAL(10,2);
+    
+    SELECT due_date INTO v_due_date 
+    FROM loans 
+    WHERE loan_id = p_loan_id;
+    
+    SET v_days_overdue = DATEDIFF(CURDATE(), v_due_date);
+    
+    IF v_days_overdue > 0 THEN
+        SET v_fee = v_days_overdue * 0.50; -- $0.50 per day
+    ELSE
+        SET v_fee = 0.00;
+    END IF;
+    
+    RETURN v_fee;
+END$$
+DELIMITER ;
